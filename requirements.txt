@@ -1,12 +1,7 @@
 flask
-whisper
-numpy==1.23.5
-librosa
-pandas
-pypinyin
-TTS
-openai-whisper
-ffmpeg-python
-scipy
 flask-cors
 openai
+pandas
+numpy
+librosa
+pypinyin
