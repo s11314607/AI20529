@@ -2,108 +2,67 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>中文→阿美語 互動翻譯 & 聲音克隆</title>
   <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
-      color: #333;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-    }
-    .container {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-      padding: 2rem;
-      max-width: 500px;
-      width: 100%;
-      text-align: center;
-    }
-    h1 {
-      font-size: 1.8rem;
-      margin-bottom: 1rem;
-      color: #2c3e50;
-    }
-    p {
-      margin-bottom: 1.5rem;
-      line-height: 1.5;
-    }
-    input[type="file"] {
-      display: block;
-      margin: 1rem auto;
-    }
-    button {
-      background-color: #3498db;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      font-size: 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
-    }
-    button:hover {
-      background-color: #2980b9;
-    }
-    #log {
-      background: #f0f0f0;
-      border-radius: 6px;
-      padding: 1rem;
-      text-align: left;
-      white-space: pre-wrap;
-      margin-top: 1rem;
-      max-height: 150px;
-      overflow-y: auto;
-    }
-    audio {
-      margin-top: 1rem;
-      width: 100%;
-    }
+    body { font-family: sans-serif; background: #eef2f7; margin: 0; padding: 0;
+           display: flex; align-items: center; justify-content: center; height: 100vh; }
+    .card { background: #fff; padding: 2rem; border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 480px;
+            text-align: center; }
+    h1 { margin-bottom: 1rem; font-size: 1.5rem; color: #2c3e50; }
+    p { margin-bottom: 1.5rem; color: #555; }
+    input { margin: 1rem 0; }
+    button { background: #3498db; color: #fff; border: none;
+             padding: 0.75rem 1.5rem; border-radius: 8px;
+             cursor: pointer; transition: background 0.3s; }
+    button:hover { background: #2980b9; }
+    #log { background: #f7f9fa; padding: 1rem; border-radius: 6px;
+           min-height: 3rem; text-align: left; white-space: pre-wrap;
+           overflow-y: auto; margin-top: 1rem; }
+    audio { margin-top: 1rem; width: 100%; }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="card">
     <h1>中文→阿美語 互動翻譯 & 聲音克隆</h1>
-    <p>請上傳或錄製一段中文，系統會辨識、查阿美語資料庫，並用你的聲音合成阿美語。</p>
-
+    <p>請錄製或上傳一段中文，系統辨識、資料庫查詢後，並用 Gemini 合成阿美語。</p>
     <input type="file" id="wav" accept="audio/*">
-    <button onclick="run()">執行</button>
+    <button id="run">執行</button>
     <div id="log"></div>
     <audio id="player" controls></audio>
   </div>
 
 <script>
-async function run(){
+const API_URL = "https://<YOUR-RENDER-URL>/api/process";
+
+document.getElementById("run").addEventListener("click", async () => {
   const file = document.getElementById("wav").files[0];
-  if(!file){ alert("請先上傳 WAV 或 MP3 檔"); return; }
+  if (!file) { alert("請先選擇音檔"); return; }
   const buf = await file.arrayBuffer();
-  const b64 = "data:audio/wav;base64,"+btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const b64 = "data:audio/wav;base64," + btoa(
+    String.fromCharCode(...new Uint8Array(buf))
+  );
 
   document.getElementById("log").innerText = "API 呼叫中…";
   try {
-    const res = await fetch("https://s11314607.github.io/AI20529/api/process", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({audio_b64:b64})
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_b64: b64 })
     });
     const js = await res.json();
-    if(res.ok){
-      document.getElementById("log").innerText =
-        `中文：${js.zh}\n阿美語：${js.ame_text}\n拼音：${js.ame_pinyin}\n音調：${js.ame_pitch}`;
-      document.getElementById("player").src = js.voice_clone_b64;
-    } else {
-      document.getElementById("log").innerText = js.error||"發生錯誤";
-    }
-  } catch(e) {
-    document.getElementById("log").innerText = "無法連線到 API";
+    if (!res.ok) throw js;
+    document.getElementById("log").innerText =
+      `中文：${js.zh}\n` +
+      `阿美語：${js.ame_text}\n` +
+      `拼音：${js.ame_pinyin}\n` +
+      `音調：${js.ame_pitch}`;
+    document.getElementById("player").src = js.voice_clone_b64;
+  } catch (e) {
+    document.getElementById("log").innerText = e.error || "發生錯誤";
   }
-}
+});
 </script>
 </body>
 </html>
