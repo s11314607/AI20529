@@ -1,55 +1,80 @@
 import os, base64, tempfile
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import openai
+import openai, pandas as pd, numpy as np, librosa
+from pypinyin import lazy_pinyin
 
 # 讀取你的 Gemini API Key
 openai.api_key = os.getenv("AIzaSyDZIGKSH-7dQapglDfcxVU3ZsixHYc0Fq4")
 
+# 載入阿美語資料庫（放在根目錄）
+DB = pd.read_csv("ame_audio_database.csv")
+
 app = Flask(__name__)
-CORS(app)  # 允許前端跨域呼叫
+CORS(app)
+
+def save_b64_wav(b64: str) -> str:
+    _, b64_data = b64.split(",", 1)
+    audio = base64.b64decode(b64_data)
+    fd, path = tempfile.mkstemp(suffix=".wav")
+    with os.fdopen(fd, "wb") as f:
+        f.write(audio)
+    return path
 
 @app.route("/api/process", methods=["POST"])
-def process_audio():
+def process():
     data = request.get_json()
-    audio_b64 = data.get("audio_b64")
-    if not audio_b64:
+    if "audio_b64" not in data:
         return jsonify({"error": "缺少 audio_b64"}), 400
 
-    # 1. 解 base64 並存成暫存檔
-    header, b64 = audio_b64.split(",", 1)
-    audio_bytes = base64.b64decode(b64)
-    fd, wav_path = tempfile.mkstemp(suffix=".wav")
-    with os.fdopen(fd, "wb") as f:
-        f.write(audio_bytes)
-
+    wav_path = save_b64_wav(data["audio_b64"])
     try:
-        # 2. 呼叫 Gemini ASR (語音轉文字)
-        asr_resp = openai.Audio.transcribe(
+        # 1️⃣ 語音辨識（ASR）
+        asr = openai.Audio.transcribe(
             file=open(wav_path, "rb"),
-            model="whisper-1"  # 或 Gemni ASR model 名稱
+            model="whisper-1"
         )
-        zh_text = asr_resp["text"].strip()
+        zh = asr["text"].strip()
 
-        # >>> 在這裡如果你還要查阿美語資料庫，就插入那段邏輯 <<<
+        # 2️⃣ 資料庫查詢
+        matched = DB[DB["zh"] == zh]
+        if matched.empty:
+            from difflib import get_close_matches
+            cands = get_close_matches(zh, DB["zh"], n=1, cutoff=0.6)
+            matched = DB[DB["zh"] == cands[0]] if cands else matched
+        if matched.empty:
+            return jsonify({"error": "查無對應阿美語"}), 404
 
-        # 3. 呼叫 Gemini TTS (文字轉語音)
-        tts_resp = openai.Audio.generate(
-            model="tts-1",       # Gemini TTS model
-            voice="alloy",       # 可用 voice ID
+        ame_text = matched.iloc[0]["ame_text"]
+        ame_pinyin = matched.iloc[0]["ame_pinyin"]
+        # 平均音調
+        y, sr = librosa.load(matched.iloc[0]["ame_audio"], sr=None)
+        f0, voiced, _ = librosa.pyin(
+            y,
+            fmin=librosa.note_to_hz("C2"),
+            fmax=librosa.note_to_hz("C7")
+        )
+        pitch = float(np.nanmean(f0[voiced])) if np.any(voiced) else None
+
+        # 3️⃣ 聲音合成（TTS）
+        tts = openai.Audio.generate(
+            model="tts-1",
+            voice="alloy",
             format="wav",
-            input=zh_text        # 這邊示範把同一句中文再合回去
+            input=ame_text
         )
-        audio_out_b64 = tts_resp["audio"]  # Gemini 回傳的 base64
+        audio_b64 = tts["audio"]
 
         return jsonify({
-            "zh": zh_text,
-            "tts_audio_b64": f"data:audio/wav;base64,{audio_out_b64}"
+            "zh": zh,
+            "ame_text": ame_text,
+            "ame_pinyin": ame_pinyin,
+            "ame_pitch": pitch,
+            "voice_clone_b64": f"data:audio/wav;base64,{audio_b64}"
         })
-
     finally:
-        # 清理暫存檔
         os.remove(wav_path)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
