@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>中文→阿美語 互動翻譯 & 聲音克隆</title>
+</head>
+<body>
+  <h1>中文→阿美語 互動翻譯 & 聲音克隆</h1>
+  <p>請錄製一段中文，系統會辨識、查阿美語資料庫，並用你的聲音合成阿美語。</p>
+
+  <input type="file" id="wav" accept="audio/*">
+  <button onclick="run()">執行</button>
+  <pre id="log"></pre>
+  <audio id="player" controls></audio>
+
+<script>
+async function run(){
+  const file = document.getElementById("wav").files[0];
+  if(!file){ alert("請先上傳 WAV 檔"); return; }
+  const buf = await file.arrayBuffer();
+  const b64 = "data:audio/wav;base64,"+btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+  document.getElementById("log").innerText = "API 呼叫中…";
+  const res = await fetch("https://<YOUR-SERVICE-URL>/api/process", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({audio_b64:b64})
+  });
+  const js = await res.json();
+  if(res.ok){
+    document.getElementById("log").innerText =
+      `中文：${js.zh}\n阿美語：${js.ame_text}\n拼音：${js.ame_pinyin}\n音調：${js.ame_pitch}`;
+    document.getElementById("player").src = js.voice_clone_b64;
+  } else {
+    document.getElementById("log").innerText = js.error||"發生錯誤";
+  }
+}
+</script>
+</body>
+</html>
