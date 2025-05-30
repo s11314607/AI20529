@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
-import whisper
 import openai
 import pandas as pd
 import numpy as np
@@ -28,7 +27,7 @@ if not OPENAI_KEY:
 
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# 舊版 openai TTS
+# 舊版 openai SDK
 openai.api_key = OPENAI_KEY
 
 # 載入或初始化本地 CSV 資料庫
@@ -39,9 +38,6 @@ except (FileNotFoundError, EmptyDataError):
         "zh","ame_audio","ame_text","ame_pinyin","ame_pitch"
     ])
     DB.to_csv(DB_CSV, index=False, encoding="utf-8-sig")
-
-# 載入本機 Whisper 模型（large 或你選的）
-ASR_MODEL = whisper.load_model("large")
 
 # ----------------------
 # Flask App
@@ -75,12 +71,12 @@ def upload_db():
             dest = os.path.join(AUDIO_DIR, fn)
             f.save(dest)
 
-            # 1️⃣ 用本機 Whisper 辨識母語文字
-            res = ASR_MODEL.transcribe(
-                dest,
-                beam_size=5, best_of=3, temperature=0.0
+            # 1️⃣ 用 OpenAI Whisper API 辨識母語文字
+            asr = openai.Audio.transcribe(
+                file=open(dest, "rb"),
+                model="whisper-1"
             )
-            ame = res["text"].strip()
+            ame = asr["text"].strip()
 
             # 2️⃣ 檔名（不含副檔名）當作中文 zh
             zh = os.path.splitext(fn)[0]
@@ -128,12 +124,12 @@ def process():
 
     wav_path = save_b64_wav(b64)
     try:
-        # 1️⃣ 本機 Whisper 辨識中文
-        res = ASR_MODEL.transcribe(
-            wav_path,
-            beam_size=5, best_of=3, temperature=0.0
+        # 1️⃣ OpenAI Whisper ASR 辨識中文
+        asr = openai.Audio.transcribe(
+            file=open(wav_path, "rb"),
+            model="whisper-1"
         )
-        zh = res["text"].strip()
+        zh = asr["text"].strip()
 
         # 2️⃣ 查 CSV
         match = DB[DB["zh"] == zh]
@@ -149,7 +145,7 @@ def process():
         ame_text   = row["ame_text"]
         ame_pinyin = row["ame_pinyin"]
 
-        # 3️⃣ TTS：OpenAI / Gemini
+        # 3️⃣ TTS：Gemini / OpenAI TTS
         tts = openai.Audio.generate(
             model="tts-1",
             voice="alloy",
@@ -172,8 +168,10 @@ def process():
         return jsonify({"error":"合成失敗","detail":str(e)}), 500
 
     finally:
-        try: os.remove(wav_path)
-        except: pass
+        try:
+            os.remove(wav_path)
+        except:
+            pass
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
