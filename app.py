@@ -1,177 +1,79 @@
-import os
-import base64
-import tempfile
-import traceback
-
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-from werkzeug.utils import secure_filename
-
-import openai
-import pandas as pd
-import numpy as np
-import librosa
+import os, tempfile, base64
+import pandas as pd, numpy as np, librosa
 from pypinyin import lazy_pinyin
-from pandas.errors import EmptyDataError
+import whisper
+import openai
+import gradio as gr
 
-# ----------------------
-# 設定區
-# ----------------------
-DB_CSV      = "ame_audio_database.csv"
-AUDIO_DIR   = "ame_audio"
-PORT        = int(os.getenv("PORT", 5000))
-OPENAI_KEY  = os.getenv("OPENAI_API_KEY")
+# 設定
+openai.api_key = os.getenv("OPENAI_API_KEY")
+DB_CSV = "ame_audio_database.csv"
+os.makedirs("ame_audio", exist_ok=True)
 
-if not OPENAI_KEY:
-    raise RuntimeError("請設定環境變數 OPENAI_API_KEY")
-
-os.makedirs(AUDIO_DIR, exist_ok=True)
-
-# 舊版 openai SDK
-openai.api_key = OPENAI_KEY
-
-# 載入或初始化本地 CSV 資料庫
+# 載入或初始化資料庫
 try:
     DB = pd.read_csv(DB_CSV)
-except (FileNotFoundError, EmptyDataError):
-    DB = pd.DataFrame(columns=[
-        "zh","ame_audio","ame_text","ame_pinyin","ame_pitch"
-    ])
+except:
+    DB = pd.DataFrame(columns=["zh","ame_audio","ame_text","ame_pinyin","ame_pitch"])
     DB.to_csv(DB_CSV, index=False, encoding="utf-8-sig")
 
-# ----------------------
-# Flask App
-# ----------------------
-app = Flask(__name__, static_folder=".", static_url_path="/")
-CORS(app)
+# 本機 Whisper
+ASR = whisper.load_model("small")
 
-def save_b64_wav(b64: str) -> str:
-    """把 base64 wav 存成臨時檔，回傳路徑"""
-    _, b64str = b64.split(",", 1)
-    data = base64.b64decode(b64str)
+def upload_db(files):
+    new = []
+    for f in files:
+        # 存檔
+        path = os.path.join("ame_audio", f.name)
+        with open(path, "wb") as out: out.write(f.read())
+        # ASR
+        res = ASR.transcribe(path)
+        ame = res["text"].strip()
+        zh = os.path.splitext(f.name)[0]
+        pyr = " ".join(lazy_pinyin(ame)) if any("\u4e00"<=c<="\u9fff" for c in ame) else " ".join(lazy_pinyin(zh))
+        y, sr = librosa.load(path, sr=None)
+        f0, v, _ = librosa.pyin(y, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"))
+        pitch = float(np.nanmean(f0[v])) if np.any(v) else None
+        new.append((zh, ame, pyr, pitch))
+    df = pd.read_csv(DB_CSV)
+    for zh,ame,pyr,p in new:
+        df = df.append({"zh":zh,"ame_audio":path,"ame_text":ame,"ame_pinyin":pyr,"ame_pitch":p}, ignore_index=True)
+    df.to_csv(DB_CSV,index=False,encoding="utf-8-sig")
+    return f"新增 {len(new)} 筆"
+
+def translate_and_tts(wav):
+    # 存 wav
     fd, path = tempfile.mkstemp(suffix=".wav")
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    return path
+    with os.fdopen(fd,"wb") as f: f.write(wav.read())
+    # ASR 中文
+    res = ASR.transcribe(path)
+    zh = res["text"].strip()
+    # 查庫
+    df = pd.read_csv(DB_CSV)
+    row = df[df["zh"]==zh]
+    if row.empty: return "查無對應","", "", None
+    ame = row.iloc[0]["ame_text"]
+    pyr = row.iloc[0]["ame_pinyin"]
+    # TTS
+    tts = openai.Audio.generate(model="tts-1", voice="alloy", format="wav", input=ame)
+    b64 = tts["audio"]
+    return zh, ame, pyr, base64.b64decode(b64)
 
-@app.route("/")
-def index():
-    return send_from_directory(".", "index.html")
+# Gradio UI
+with gr.Blocks() as demo:
+    gr.Markdown("## 中文→阿美語 翻譯 & 聲音克隆")
+    with gr.Tab("更新母語資料庫"):
+        db_uploader = gr.File(file_count="multiple")
+        db_btn      = gr.Button("上傳並建立")
+        db_out      = gr.Textbox()
+        db_btn.click(upload_db, db_uploader, db_out)
+    with gr.Tab("翻譯 & 合成"):
+        wav_in  = gr.Audio(source="upload", type="file")
+        btn     = gr.Button("執行")
+        out1    = gr.Textbox(label="中文辨識")
+        out2    = gr.Textbox(label="阿美語")
+        out3    = gr.Textbox(label="拼音")
+        out4    = gr.Audio(label="聲音克隆")
+        btn.click(translate_and_tts, wav_in, [out1,out2,out3,out4])
 
-@app.route("/api/upload-db", methods=["POST"])
-def upload_db():
-    files = request.files.getlist("files")
-    if not files:
-        return jsonify({"error":"請上傳至少一個音檔"}), 400
-
-    new_entries = []
-    try:
-        for f in files:
-            fn = secure_filename(f.filename)
-            dest = os.path.join(AUDIO_DIR, fn)
-            f.save(dest)
-
-            # 1️⃣ 用 OpenAI Whisper API 辨識母語文字
-            asr = openai.Audio.transcribe(
-                file=open(dest, "rb"),
-                model="whisper-1"
-            )
-            ame = asr["text"].strip()
-
-            # 2️⃣ 檔名（不含副檔名）當作中文 zh
-            zh = os.path.splitext(fn)[0]
-
-            # 3️⃣ 轉拼音
-            if any("\u4e00" <= ch <= "\u9fff" for ch in ame):
-                pinyin = " ".join(lazy_pinyin(ame))
-            else:
-                pinyin = " ".join(lazy_pinyin(zh))
-
-            # 4️⃣ 計算音調（Hz）
-            y, sr = librosa.load(dest, sr=None)
-            f0, voiced, _ = librosa.pyin(
-                y,
-                fmin=librosa.note_to_hz("C2"),
-                fmax=librosa.note_to_hz("C7")
-            )
-            pitch = float(np.nanmean(f0[voiced])) if np.any(voiced) else None
-
-            new_entries.append({
-                "zh": zh,
-                "ame_audio": dest,
-                "ame_text": ame,
-                "ame_pinyin": pinyin,
-                "ame_pitch": pitch
-            })
-
-        # 5️⃣ 更新 CSV
-        df_all = pd.concat([DB, pd.DataFrame(new_entries)], ignore_index=True)
-        df_all.to_csv(DB_CSV, index=False, encoding="utf-8-sig")
-
-        return jsonify({"added": len(new_entries), "entries": new_entries})
-
-    except Exception as e:
-        print("=== upload-db Exception ===")
-        traceback.print_exc()
-        return jsonify({"error":"更新資料庫失敗","detail":str(e)}), 500
-
-@app.route("/api/process", methods=["POST"])
-def process():
-    payload = request.get_json(force=True)
-    b64 = payload.get("audio_b64", "")
-    if not b64:
-        return jsonify({"error":"缺少 audio_b64"}), 400
-
-    wav_path = save_b64_wav(b64)
-    try:
-        # 1️⃣ OpenAI Whisper ASR 辨識中文
-        asr = openai.Audio.transcribe(
-            file=open(wav_path, "rb"),
-            model="whisper-1"
-        )
-        zh = asr["text"].strip()
-
-        # 2️⃣ 查 CSV
-        match = DB[DB["zh"] == zh]
-        if match.empty:
-            from difflib import get_close_matches
-            cands = get_close_matches(zh, DB["zh"], n=1, cutoff=0.6)
-            if cands:
-                match = DB[DB["zh"] == cands[0]]
-        if match.empty:
-            return jsonify({"error":"查無對應阿美語"}), 404
-
-        row = match.iloc[0]
-        ame_text   = row["ame_text"]
-        ame_pinyin = row["ame_pinyin"]
-
-        # 3️⃣ TTS：Gemini / OpenAI TTS
-        tts = openai.Audio.generate(
-            model="tts-1",
-            voice="alloy",
-            format="wav",
-            input=ame_text
-        )
-        b64out = tts["audio"]
-
-        return jsonify({
-            "zh": zh,
-            "ame_text": ame_text,
-            "ame_pinyin": ame_pinyin,
-            "ame_pitch": row["ame_pitch"],
-            "voice_clone_b64": f"data:audio/wav;base64,{b64out}"
-        })
-
-    except Exception as e:
-        print("=== process Exception ===")
-        traceback.print_exc()
-        return jsonify({"error":"合成失敗","detail":str(e)}), 500
-
-    finally:
-        try:
-            os.remove(wav_path)
-        except:
-            pass
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+demo.launch()
