@@ -1,1 +1,4 @@
-
+| zh | ame\_audio            | ame\_text | ame\_pinyin | ame\_pitch |
+| -- | --------------------- | --------- | ----------- | ---------- |
+| 你好 | ame\_audio/你好.mp3  | Nga'ay ho | ka wa ay    | 240.5      |
+| 謝謝 | ame\_audio/謝謝.mp3  | aray     | ma pi a     | 220.3      |
