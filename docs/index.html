@@ -21,7 +21,7 @@ async function run(){
   const b64 = "data:audio/wav;base64,"+btoa(String.fromCharCode(...new Uint8Array(buf)));
 
   document.getElementById("log").innerText = "API 呼叫中…";
-  const res = await fetch("https://<YOUR-SERVICE-URL>/api/process", {
+  const res = await fetch("https://s11314607.github.io/AI20529/", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({audio_b64:b64})
