@@ -5,28 +5,91 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>中文→阿美語 翻譯 & 聲音克隆</title>
   <style>
-    body{font-family:sans-serif;background:#eef2f7;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}
-    .card{background:#fff;padding:2rem;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);width:100%;max-width:480px;text-align:center}
-    h1{color:#2c3e50;margin-bottom:1rem}
-    p{color:#555;margin-bottom:1.5rem}
-    input,button{margin:0.5rem 0}
-    button{background:#3498db;color:#fff;border:none;padding:0.75rem 1.5rem;border-radius:8px;cursor:pointer;transition:0.3s}
-    button:disabled{background:#ccc;cursor:not-allowed}
-    button:hover:enabled{background:#2980b9}
-    #log,#db-log{background:#f7f9fa;padding:1rem;border-radius:6px;white-space:pre-wrap;text-align:left;min-height:3rem;overflow:auto}
-    audio{margin-top:1rem;width:100%}
+    body {
+      font-family: sans-serif;
+      background: #eef2f7;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .card {
+      background: #fff;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 1rem;
+    }
+    p {
+      color: #555;
+      margin-bottom: 1.5rem;
+    }
+    input, button {
+      margin: 0.5rem 0;
+      width: 100%;
+      max-width: 300px;
+    }
+    button {
+      background: #3498db;
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    button:hover:enabled {
+      background: #2980b9;
+    }
+    #log, #db-log {
+      background: #f7f9fa;
+      padding: 1rem;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      text-align: left;
+      min-height: 3rem;
+      overflow: auto;
+      margin-top: 0.5rem;
+    }
+    audio {
+      margin-top: 1rem;
+      width: 100%;
+    }
+    hr {
+      margin: 2rem 0;
+      border: none;
+      border-top: 1px solid #ddd;
+    }
+    h2 {
+      color: #2c3e50;
+      margin-bottom: 0.5rem;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>中文→阿美語 翻譯 & 聲音克隆</h1>
     <p>錄製/上傳中文 → 辨識 → 資料庫查 → Gemini TTS</p>
+
     <!-- 翻譯 & 合成 區塊 -->
     <input type="file" id="wav" accept="audio/*">
     <button id="run" disabled>翻譯 & 合成</button>
     <div id="log"></div>
     <audio id="player" controls></audio>
+
     <hr>
+
     <!-- 更新母語資料庫 區塊 -->
     <h2>🔄 更新母語資料庫</h2>
     <p>先上傳母語音檔，才能進行翻譯與合成</p>
@@ -35,67 +98,70 @@
     <div id="db-log"></div>
   </div>
 
-<script>
-  // 改成你的 Render 域名
-  const API = "https://ai20529.onrender.com/api/process";
-  const UP  = "https://ai20529.onrender.com/api/upload-db";
+  <script>
+    // ← 請改成你實際部署的 Render 網址
+    const API = "https://ai20529.onrender.com/api/process";
+    const UP  = "https://ai20529.onrender.com/api/upload-db";
 
-  const runBtn    = document.getElementById('run');
-  const uploadBtn = document.getElementById('upload-db');
+    const runBtn    = document.getElementById('run');
+    const uploadBtn = document.getElementById('upload-db');
 
-  // 翻譯 & 合成
-  runBtn.onclick = async ()=>{
-    const f = document.getElementById('wav').files[0];
-    if(!f){ alert('請選擇中文音檔'); return; }
+    // 翻譯 & 合成
+    runBtn.onclick = async () => {
+      const f = document.getElementById('wav').files[0];
+      if (!f) {
+        alert('請選擇中文音檔');
+        return;
+      }
 
-    // base64 編碼
-    const buf = await f.arrayBuffer();
-    const b64 = 'data:audio/wav;base64,' + btoa(String.fromCharCode(...new Uint8Array(buf)));
+      // 轉 base64
+      const buf = await f.arrayBuffer();
+      const b64 = 'data:audio/wav;base64,' + btoa(String.fromCharCode(...new Uint8Array(buf)));
 
-    document.getElementById('log').innerText = '呼叫中…';
-    try {
-      const res = await fetch(API, {
-        method: 'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({audio_b64: b64})
-      });
-      const j = await res.json();
-      if(!res.ok) throw j;
-      document.getElementById('log').innerText =
-        `中文：${j.zh}\n` +
-        `阿美語：${j.ame_text}\n` +
-        `拼音：${j.ame_pinyin}\n` +
-        `音調：${j.ame_pitch}`;
-      document.getElementById('player').src = j.voice_clone_b64;
-    } catch(e) {
-      document.getElementById('log').innerText = e.error || '呼叫失敗';
-    }
-  };
+      document.getElementById('log').innerText = '呼叫中…';
+      try {
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio_b64: b64 })
+        });
+        const j = await res.json();
+        if (!res.ok) throw j;
+        document.getElementById('log').innerText =
+          `中文：${j.zh}\n` +
+          `阿美語：${j.ame_text}\n` +
+          `拼音：${j.ame_pinyin}\n` +
+          `音調：${j.ame_pitch}`;
+        document.getElementById('player').src = j.voice_clone_b64;
+      } catch (e) {
+        document.getElementById('log').innerText = e.error || '呼叫失敗';
+      }
+    };
 
-  // 更新母語資料庫
-  uploadBtn.onclick = async ()=>{
-    const files = document.getElementById('dbfiles').files;
-    if(files.length === 0){
-      alert('請先選擇至少一個母語音檔');
-      return;
-    }
-    const form = new FormData();
-    for(let f of files) form.append('files', f);
+    // 更新母語資料庫
+    uploadBtn.onclick = async () => {
+      const files = document.getElementById('dbfiles').files;
+      if (files.length === 0) {
+        alert('請先選擇至少一個母語音檔');
+        return;
+      }
+      const form = new FormData();
+      for (let f of files) form.append('files', f);
 
-    document.getElementById('db-log').innerText = '資料庫更新中…';
-    try {
-      const res = await fetch(UP, {method:'POST', body: form});
-      const j = await res.json();
-      if(!res.ok) throw j;
-      document.getElementById('db-log').innerText =
-        `新增 ${j.added} 筆資料\n` +
-        j.entries.map(e => `• ${e.zh} → ${e.ame_text}`).join('\n');
-      // 資料庫已更新，啟用「翻譯 & 合成」
-      runBtn.disabled = false;
-    } catch(e) {
-      document.getElementById('db-log').innerText = e.error || '更新失敗';
-    }
-  };
-</script>
+      document.getElementById('db-log').innerText = '資料庫更新中…';
+      try {
+        const res = await fetch(UP, { method: 'POST', body: form });
+        const j = await res.json();
+        if (!res.ok) throw j;
+        document.getElementById('db-log').innerText =
+          `新增 ${j.added} 筆資料\n` +
+          j.entries.map(e => `• ${e.zh} → ${e.ame_text}`).join('\n');
+        // 啟用翻譯 & 合成
+        runBtn.disabled = false;
+      } catch (e) {
+        document.getElementById('db-log').innerText = e.error || '更新失敗';
+      }
+    };
+  </script>
 </body>
 </html>
