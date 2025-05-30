@@ -8,3 +8,5 @@ TTS
 openai-whisper
 ffmpeg-python
 scipy
+flask-cors
+openai
