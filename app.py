@@ -6,6 +6,7 @@ from pypinyin import lazy_pinyin
 from werkzeug.utils import secure_filename
 import pandas as pd
 from pandas.errors import EmptyDataError
+import os, openai
 
 DB_CSV = "ame_audio_database.csv"
 # 避免檔案不存在或是空檔
@@ -18,8 +19,8 @@ except (FileNotFoundError, EmptyDataError):
 
 # 接著既有的 Flask 路由就可以安全地使用 DB 了
 
-# 讀取 Gemini API Key
-openai.api_key = os.getenv("GEMINI_API_KEY")
+# 讀取 openai API Key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # 載入阿美語資料庫
 DB_CSV = "ame_audio_database.csv"
