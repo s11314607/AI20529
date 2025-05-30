@@ -4,6 +4,19 @@ from flask_cors import CORS
 import openai, pandas as pd, numpy as np, librosa
 from pypinyin import lazy_pinyin
 from werkzeug.utils import secure_filename
+import pandas as pd
+from pandas.errors import EmptyDataError
+
+DB_CSV = "ame_audio_database.csv"
+# 避免檔案不存在或是空檔
+try:
+    DB = pd.read_csv(DB_CSV)
+except (FileNotFoundError, EmptyDataError):
+    # 建一張空表並寫入欄位
+    DB = pd.DataFrame(columns=["zh","ame_audio","ame_text","ame_pinyin","ame_pitch"])
+    DB.to_csv(DB_CSV, index=False, encoding="utf-8-sig")
+
+# 接著既有的 Flask 路由就可以安全地使用 DB 了
 
 # 讀取 Gemini API Key
 openai.api_key = os.getenv("GEMINI_API_KEY")
